@@ -1,6 +1,7 @@
 # Build artifacts
 build/
 *.o
+*.d
 *.a
 *.so
 *.dylib
@@ -20,3 +21,4 @@ fastyz.exe
 # Test files
 *.yaz0
 *.szs
+*.sarc
