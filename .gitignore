@@ -21,4 +21,6 @@ fastyz.exe
 # Test files
 *.yaz0
 *.szs
+*.carc
 *.sarc
+*.arc

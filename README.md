@@ -184,4 +184,4 @@ fastyz --help
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version information |
 
-If no mode is specified, the operation is auto-detected based on file extension (`.yaz0`, `.szs`) or file magic signature.
+If no mode is specified, the operation is auto-detected based on file extension (`.yaz0`, `.szs`, `.carc`) or file magic signature.

@@ -146,28 +146,36 @@ static char* generate_output_filename(const char* input, operation_mode_t mode)
 
     if (mode == MODE_COMPRESS) {
         /* Append .yaz0 extension */
-        output = (char*)malloc(len + 6);
+        output = (char*)malloc(len + 5 + 1);
         if (output) {
             strcpy(output, input);
             strcat(output, ".yaz0");
         }
     } else {
-        /* Remove .yaz0 or .szs extension if present */
+        /* Remove .yaz0, .szs, or .carc extension if present */
         if (str_ends_with_i(input, ".yaz0")) {
-            output = (char*)malloc(len - 4);
+            output = (char*)malloc(len - 5 + 1);
             if (output) {
                 strncpy(output, input, len - 5);
                 output[len - 5] = '\0';
             }
         } else if (str_ends_with_i(input, ".szs")) {
-            output = (char*)malloc(len - 3);
+            output = (char*)malloc(len - 4 + 1);
             if (output) {
                 strncpy(output, input, len - 4);
                 output[len - 4] = '\0';
             }
+        } else if (str_ends_with_i(input, ".carc")) {
+            /* Replace .carc with .arc */
+            output = (char*)malloc(len - 5 + 4 + 1);
+            if (output) {
+                strncpy(output, input, len - 5);
+                output[len - 5] = '\0';
+                strcat(output, ".arc");
+            }
         } else {
             /* Append .bin for decompressed output */
-            output = (char*)malloc(len + 5);
+            output = (char*)malloc(len + 4 + 1);
             if (output) {
                 strcpy(output, input);
                 strcat(output, ".bin");
@@ -307,14 +315,14 @@ static void print_usage(void)
     printf("  -v          Show version information\n");
     printf("\n");
     printf("If no mode is specified, the operation is auto-detected:\n");
-    printf("  - Files with .yaz0 or .szs extension are decompressed\n");
+    printf("  - Files with .yaz0, .szs, or .carc extension are decompressed\n");
     printf("  - Files starting with 'Yaz0' magic are decompressed\n");
     printf("  - All other files are compressed\n");
     printf("\n");
     printf("Examples:\n");
-    printf("  %s file.bin              Compress to file.bin.yaz0\n", PROGRAM_NAME);
+    printf("  %s file.bin                 Compress to file.bin.yaz0\n", PROGRAM_NAME);
     printf("  %s -c file.bin -o out.szs   Compress to out.szs\n", PROGRAM_NAME);
-    printf("  %s file.yaz0             Decompress to file\n", PROGRAM_NAME);
+    printf("  %s file.yaz0                Decompress to file\n", PROGRAM_NAME);
     printf("  %s -d data.szs -o raw.bin   Decompress to raw.bin\n", PROGRAM_NAME);
 }
 
@@ -372,7 +380,7 @@ int main(int argc, char* argv[])
     /* Auto-detect mode if not specified */
     if (mode == MODE_AUTO) {
         /* Check file extension first */
-        if (str_ends_with_i(input_file, ".yaz0") || str_ends_with_i(input_file, ".szs")) {
+        if (str_ends_with_i(input_file, ".yaz0") || str_ends_with_i(input_file, ".szs") || str_ends_with_i(input_file, ".carc")) {
             mode = MODE_DECOMPRESS;
         } else {
             /* Check file magic */
