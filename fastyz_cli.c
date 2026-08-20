@@ -330,7 +330,7 @@ static void print_version(void)
 {
     printf("FastYZ v%s\n", PROGRAM_VERSION);
     printf("Fast Yaz0 compression based on FastLZ\n");
-    printf("https://github.com/your-username/fastyz\n");
+    printf("https://github.com/aboood40091/FastYZ\n");
 }
 
 int main(int argc, char* argv[])

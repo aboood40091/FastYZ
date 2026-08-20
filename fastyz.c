@@ -19,9 +19,6 @@
 #include <stdbool.h>
 #include <string.h>
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
-
 /*
  * Branch prediction hints for the compiler.
  * These help optimize the hot paths in compression/decompression loops.
@@ -81,7 +78,6 @@
 #endif
 
 #define HASH_SIZE (1 << HASH_LOG)
-#define HASH_MASK (HASH_SIZE - 1)
 
 /* ========================================================================
  * Memory Access Utilities
@@ -109,10 +105,9 @@ static uint32_t read_u32(const void* ptr)
  * Compute a hash value for match finding.
  * Uses a multiplicative hash with a prime constant for good distribution.
  */
-static uint16_t compute_hash(uint32_t v)
+static uint32_t compute_hash(uint32_t v, uint32_t shift, uint32_t mask)
 {
-    uint32_t h = (v * 2654435769LL) >> (32 - HASH_LOG);
-    return h & HASH_MASK;
+    return ((v * 2654435761u) >> shift) & mask;
 }
 
 /*
@@ -120,15 +115,25 @@ static uint16_t compute_hash(uint32_t v)
  * The comparison stops at the boundary 'limit' to prevent buffer overruns.
  */
 #if defined(YAZ0_ARCH64)
+static uint64_t read_u64(const void* ptr)
+{
+    uint64_t v;
+    memcpy(&v, ptr, 8);
+    return v;
+}
+
 static uint32_t compare_match(const uint8_t* p, const uint8_t* q, const uint8_t* limit)
 {
     const uint8_t* start = p;
 
-    /* Compare 4 bytes at a time when possible */
-    if (read_u32(p) == read_u32(q))
+    /* 8 bytes per iteration; ctz locates the first differing byte */
+    while (q + 8 <= limit)
     {
-        p += 4;
-        q += 4;
+        uint64_t x = read_u64(p) ^ read_u64(q);
+        if (x)
+            return (uint32_t)(p - start) + (uint32_t)(__builtin_ctzll(x) >> 3);
+        p += 8;
+        q += 8;
     }
     
     /* Byte-by-byte comparison for remaining bytes */
@@ -154,49 +159,6 @@ static uint32_t compare_match(const uint8_t* p, const uint8_t* q, const uint8_t*
     return (uint32_t)(p - start);
 }
 #endif
-
-/* ========================================================================
- * Small Memory Copy Utilities
- * ======================================================================== */
-
-/*
- * Copy a small number of bytes (up to MAX_COPY = 8).
- * Optimized for the common case in literal runs.
- */
-static void small_copy(uint8_t* dest, const uint8_t* src, uint32_t count)
-{
-#if defined(YAZ0_ARCH64)
-    if (count >= 4)
-    {
-        const uint32_t* p = (const uint32_t*)src;
-        uint32_t* q = (uint32_t*)dest;
-        while (count > 4)
-        {
-            *q++ = *p++;
-            count -= 4;
-            dest += 4;
-            src += 4;
-        }
-    }
-#endif
-    memcpy(dest, src, count);
-}
-
-/*
- * Copy exactly MAX_COPY (8) bytes.
- * Optimized for full literal groups in the flag-byte scheme.
- */
-static void max_copy(void* dest, const void* src)
-{
-#if defined(YAZ0_ARCH64)
-    const uint32_t* p = (const uint32_t*)src;
-    uint32_t* q = (uint32_t*)dest;
-    *q++ = *p++;
-    *q++ = *p++;
-#else
-    memcpy(dest, src, MAX_COPY);
-#endif
-}
 
 /* ========================================================================
  * Yaz0 Writer State
@@ -246,14 +208,11 @@ static inline void writer_emit_literals(yaz0_writer_t* w, uint32_t count, const 
         const bool fits_in_room = count < room;
         uint32_t n = fits_in_room ? count : room;
 
-        /* Set flag bits for literals (1 = literal) */
-        for (uint32_t i = 0; i < n; ++i)
-        {
-            *w->flagp |= w->mask;
-            w->mask >>= 1;
-        }
+        /* Set n flag bits starting at the current position, in one shot */
+        *w->flagp |= (uint8_t)((0xFFu >> (8 - n)) << (room - n));
+        w->mask = (uint8_t)(w->mask >> n);
 
-        small_copy(w->op, src, n);
+        memcpy(w->op, src, n);
         w->op += n;
         src += n;
         count -= n;
@@ -268,7 +227,7 @@ static inline void writer_emit_literals(yaz0_writer_t* w, uint32_t count, const 
     while (count >= MAX_COPY)
     {
         *w->flagp = 0xFF;  /* All 8 bits set = all literals */
-        max_copy(w->op, src);
+        memcpy(w->op, src, MAX_COPY);
         w->op += MAX_COPY;
         src += MAX_COPY;
         count -= MAX_COPY;
@@ -281,7 +240,7 @@ static inline void writer_emit_literals(yaz0_writer_t* w, uint32_t count, const 
         *w->flagp |= 0xFFu << (8 - count);
         w->mask = 0x80u >> count;
 
-        small_copy(w->op, src, count);
+        memcpy(w->op, src, count);
         w->op += count;
     }
 }
@@ -361,8 +320,13 @@ static inline void writer_emit_match(yaz0_writer_t* w, uint32_t len, uint32_t di
  * Public API: Compression
  * ======================================================================== */
 
-int yaz0_compress(const void* input, int length, void* output)
+static inline __attribute__((always_inline))
+int compress_core(const void* input, int length, void* output, const uint32_t hlog)
 {
+    const uint32_t hsize = 1 << hlog;
+    const uint32_t hmask = hsize - 1;
+    const uint32_t hshift = 32 - hlog;
+
     const uint8_t* ip = (const uint8_t*)input;
     const uint8_t* ip_start = ip;
     const uint8_t* ip_bound = ip + length - 4;  /* Leave room for read_u32 */
@@ -389,7 +353,8 @@ int yaz0_compress(const void* input, int length, void* output)
     writer_new_group(&w);
 
     /* Initialize hash table for match finding */
-    uint32_t htab[HASH_SIZE] = { 0 };
+    uint32_t htab[HASH_SIZE];
+    memset(htab, 0, hsize * sizeof(uint32_t));
 
     /* Start with literal copy (first 2 bytes can't have back-references) */
     const uint8_t* anchor = ip;
@@ -405,7 +370,7 @@ int yaz0_compress(const void* input, int length, void* output)
         do
         {
             seq = read_u32(ip) & 0xffffff;  /* Use 3 bytes for hashing, the minimum match length */
-            hash = compute_hash(seq);
+            hash = compute_hash(seq, hshift, hmask);
             ref = ip_start + htab[hash];
             htab[hash] = ip - ip_start;
             distance = ip - ref;
@@ -438,10 +403,10 @@ int yaz0_compress(const void* input, int length, void* output)
 
         /* Update hash table at the match boundary for future matches */
         seq = read_u32(ip);
-        hash = compute_hash(seq & 0xFFFFFF);
+        hash = compute_hash(seq & 0xFFFFFF, hshift, hmask);
         htab[hash] = ip++ - ip_start;
         seq >>= 8;
-        hash = compute_hash(seq);
+        hash = compute_hash(seq, hshift, hmask);
         htab[hash] = ip++ - ip_start;
     }
 
@@ -450,6 +415,15 @@ int yaz0_compress(const void* input, int length, void* output)
     writer_emit_literals(&w, remaining, anchor);
 
     return (int)(w.op - (uint8_t*)output);
+}
+
+int yaz0_compress(const void* input, int length, void* output)
+{
+    if (length < 0 || input == 0 || output == 0)
+        return 0;
+    if (HASH_LOG > 10 && length < (1 << 12)) return compress_core(input, length, output, 10);
+    if (HASH_LOG > 12 && length < (1 << 15)) return compress_core(input, length, output, 12);
+    return compress_core(input, length, output, HASH_LOG);
 }
 
 /* ========================================================================
@@ -468,81 +442,180 @@ int yaz0_decompress(const void* input, int length, void* output, int maxout)
         return 0;
 
     /* Check output buffer is large enough */
-    if ((int)decompressed_size > maxout)
+    if (maxout < 0 || decompressed_size > (uint32_t)maxout)
         return 0;
 
     const uint8_t* src = (const uint8_t*)input;
     const uint8_t* src_end = src + length;
     uint8_t* dst = (uint8_t*)output;
-    uint8_t* dst_end = dst + maxout;
+    uint8_t* dst_end = dst + decompressed_size;
 
     /* Skip header */
     src += YAZ0_HEADER_SIZE;
 
+    /* The unchecked path needs slack for 8-byte overwrites and 3-byte tokens */
+    uint8_t* dst_fast = (decompressed_size > 32) ? dst_end - 32 : dst;
+    const uint8_t* src_fast = (length > 32) ? src_end - 32 : (const uint8_t*)input;
+
     /* Decompression loop */
-    uint8_t flag = 0;
-    int bits_remaining = 0;
-
-    while (dst < (uint8_t*)output + decompressed_size)
+    while (dst < dst_end)
     {
-        /* Read new flag byte when all bits are consumed */
-        if (bits_remaining == 0)
-        {
-            if (src >= src_end)
-                return 0;
-            flag = *src++;
-            bits_remaining = 8;
-        }
+        /* Read new flag byte */
+        if (src >= src_end)
+            return 0;
+        uint32_t flag = *src++;
 
-        if (flag & 0x80)
+        if (YAZ0_LIKELY(dst < dst_fast && src < src_fast))
         {
-            /* Flag bit = 1: literal byte */
-            if (src >= src_end || dst >= dst_end)
-                return 0;
-            *dst++ = *src++;
+            /* Hot path: 8 tokens with no per-token bounds tests */
+            for (int i = 0; i < YAZ0_FLAG_BYTE_NUM_BITS; ++i)
+            {
+                if (flag & 0x80)
+                {
+                    /* Flag bit = 1: literal byte */
+                    *dst++ = *src++;
+                }
+                else
+                {
+                    /* Flag bit = 0: match reference */
+                    uint8_t byte1 = *src++;
+                    uint8_t byte2 = *src++;
+
+                    /* Extract distance (always present in first 2 bytes) */
+                    uint32_t distance = ((byte1 & 0x0F) << 8) | byte2;
+                    distance++;  /* Stored as distance-1 */
+
+                    uint32_t len = byte1 >> 4;
+                    if (len == 0)
+                    {
+                        /* Long form: length in third byte */
+                        len = *src++;
+                        len += LONG_FORM_MIN;
+                    }
+                    else
+                    {
+                        /* Short form: length in high nibble */
+                        len += (SHORT_FORM_MIN - 1);
+                    }
+
+                    /* Validate back-reference and copy from it (byte-by-byte for overlapping copies) */
+                    const uint8_t* ref = dst - distance;
+                    if (YAZ0_UNLIKELY(ref < (uint8_t*)output))
+                        return 0;
+
+                    if (YAZ0_UNLIKELY(dst + len > dst_fast))
+                    {
+                        if (dst + len > dst_end)
+                            return 0;
+
+                        for (uint32_t j = 0; j < len; ++j)
+                            *dst++ = *ref++;
+                    }
+                    else if (distance >= 8)
+                    {
+                        uint8_t* local_dst = dst;
+                        uint8_t* local_dst_end = dst + len;
+                        do
+                        {
+                            memcpy(local_dst, ref, 8);
+                            local_dst += 8;
+                            ref += 8;
+                        }
+                        while (local_dst < local_dst_end);
+                        dst += len;
+                    }
+                    else
+                    {
+                        /* overlapping run:
+                           materialize 8 bytes, then move the source so the remainder has an effective distance of at least 8
+                           (standard offset-table trick) */
+                        static const uint32_t inc32[8] = { 0, 1, 2,  1,  0, 4, 4, 4 };
+                        static const  int32_t dec64[8] = { 0, 0, 0, -1, -4, 1, 2, 3 };
+
+                        const uint8_t* local_ref = ref;
+                        /* Need explicit sequential forward stores since they propagate the pattern */
+                        dst[0] = local_ref[0]; dst[1] = local_ref[1]; dst[2] = local_ref[2]; dst[3] = local_ref[3];
+
+                        local_ref += inc32[distance];
+                        memcpy(dst + 4, local_ref, 4);
+
+                        /* We copied 8 bytes already, check if there's more to copy */
+                        if (len > 8)
+                        {
+                            local_ref -= dec64[distance];
+                            uint8_t* local_dst = dst + 8;
+                            uint8_t* local_dst_end = dst + len;
+                            do
+                            {
+                                memcpy(local_dst, local_ref, 8);
+                                local_dst += 8;
+                                local_ref += 8;
+                            }
+                            while (local_dst < local_dst_end);
+                        }
+
+                        dst += len;
+                    }
+                }
+                flag <<= 1;
+                if (dst >= dst_end)
+                    break;
+            }
         }
         else
         {
-            /* Flag bit = 0: match reference */
-            if (src + 2 > src_end)
-                return 0;
-
-            uint8_t byte1 = *src++;
-            uint8_t byte2 = *src++;
-
-            /* Extract distance (always present in first 2 bytes) */
-            uint32_t distance = ((byte1 & 0x0F) << 8) | byte2;
-            distance++;  /* Stored as distance-1 */
-
-            uint32_t len = byte1 >> 4;
-            if (len == 0)
+            /* Careful path near either buffer end */
+            for (int i = 0; i < YAZ0_FLAG_BYTE_NUM_BITS && dst < dst_end; ++i)
             {
-                /* Long form: length in third byte */
-                if (src >= src_end)
-                    return 0;
-                len = *src++;
-                len += LONG_FORM_MIN;
-            }
-            else
-            {
-                /* Short form: length in high nibble */
-                len += (SHORT_FORM_MIN - 1);
-            }
+                if (flag & 0x80)
+                {
+                    /* Flag bit = 1: literal byte */
+                    if (src >= src_end)
+                        return 0;
+                    *dst++ = *src++;
+                }
+                else
+                {
+                    /* Flag bit = 0: match reference */
+                    if (src + 2 > src_end)
+                        return 0;
 
-            /* Validate back-reference */
-            if (dst - distance < (uint8_t*)output)
-                return 0;
-            if (dst + len > dst_end)
-                return 0;
+                    uint8_t byte1 = *src++;
+                    uint8_t byte2 = *src++;
 
-            /* Copy from back-reference (byte-by-byte for overlapping copies) */
-            const uint8_t* ref = dst - distance;
-            for (uint32_t i = 0; i < len; ++i)
-                *dst++ = *ref++;
+                    /* Extract distance (always present in first 2 bytes) */
+                    uint32_t distance = ((byte1 & 0x0F) << 8) | byte2;
+                    distance++;  /* Stored as distance-1 */
+
+                    uint32_t len = byte1 >> 4;
+                    if (len == 0)
+                    {
+                        /* Long form: length in third byte */
+                        if (src >= src_end)
+                            return 0;
+                        len = *src++;
+                        len += LONG_FORM_MIN;
+                    }
+                    else
+                    {
+                        /* Short form: length in high nibble */
+                        len += (SHORT_FORM_MIN - 1);
+                    }
+
+                    /* Validate back-reference */
+                    const uint8_t* ref = dst - distance;
+                    if (ref < (uint8_t*)output)
+                        return 0;
+                    if (dst + len > dst_end)
+                        return 0;
+
+                    /* Copy from back-reference (byte-by-byte for overlapping copies) */
+                    for (uint32_t j = 0; j < len; ++j)
+                        *dst++ = *ref++;
+                }
+                flag <<= 1;
+            }
         }
-
-        flag <<= 1;
-        bits_remaining--;
     }
 
     return (int)(dst - (uint8_t*)output);
@@ -571,5 +644,3 @@ int yaz0_is_valid(const void* input)
     const uint8_t* src = (const uint8_t*)input;
     return (src[0] == 'Y' && src[1] == 'a' && src[2] == 'z' && src[3] == '0');
 }
-
-#pragma GCC diagnostic pop
