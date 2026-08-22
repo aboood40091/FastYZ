@@ -33,7 +33,7 @@
 
 /*
  * Enable 64-bit optimizations on supported architectures.
- * This allows reading/comparing 4 bytes at a time using native instructions.
+ * This allows reading/comparing 8 bytes at a time using native instructions.
  */
 #if defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__)
 #define YAZ0_ARCH64
@@ -376,7 +376,7 @@ int compress_core(const void* input, int length, void* output, const uint32_t hl
             distance = ip - ref;
             
             /* Check if the match is valid (within distance and matching) */
-            cmp = YAZ0_LIKELY(distance < MAX_MATCH_DISTANCE) 
+            cmp = YAZ0_LIKELY(distance <= MAX_MATCH_DISTANCE)
                   ? read_u32(ref) & 0xffffff 
                   : 0x1000000;
             
