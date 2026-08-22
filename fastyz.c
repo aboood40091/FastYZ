@@ -32,6 +32,74 @@
 #endif
 
 /*
+ * Count-trailing-zeros & count-leading-zeros shims.
+ */
+#if defined(__clang__) || defined(__GNUC__)
+#define YAZ0_CTZ32(x) ((uint32_t)__builtin_ctz(x))
+#define YAZ0_CLZ32(x) ((uint32_t)__builtin_clz(x))
+#define YAZ0_CTZ64(x) ((uint32_t)__builtin_ctzll(x))
+#define YAZ0_CLZ64(x) ((uint32_t)__builtin_clzll(x))
+#elif defined(_MSC_VER)
+#include <intrin.h>
+static uint32_t YAZ0_CTZ32(uint32_t x) { unsigned long i; _BitScanForward(&i, x); return (uint32_t)i; }
+static uint32_t YAZ0_CLZ32(uint32_t x) { unsigned long i; _BitScanReverse(&i, x); return 31u - (uint32_t)i; }
+#if defined(_M_X64) || defined(_M_ARM64)
+static uint32_t YAZ0_CTZ64(uint64_t x) { unsigned long i; _BitScanForward64(&i, x); return (uint32_t)i; }
+static uint32_t YAZ0_CLZ64(uint64_t x) { unsigned long i; _BitScanReverse64(&i, x); return 63u - (uint32_t)i; }
+#endif
+#else
+static uint32_t YAZ0_CTZ32(uint32_t x) { uint32_t n = 0; while (!(x & 1u)) { x >>= 1; ++n; } return n; }
+static uint32_t YAZ0_CLZ32(uint32_t x) { uint32_t n = 0; while (!(x & 0x80000000u)) { x <<= 1; ++n; } return n; }
+static uint32_t YAZ0_CTZ64(uint64_t x) { uint32_t n = 0; while (!(x & 1u)) { x >>= 1; ++n; } return n; }
+static uint32_t YAZ0_CLZ64(uint64_t x) { uint32_t n = 0; while (!(x & 0x8000000000000000ull)) { x <<= 1; ++n; } return n; }
+#endif
+
+/*
+ * Force-inline attribute, portably.
+ */
+#if defined(__clang__) || defined(__GNUC__)
+#define YAZ0_ALWAYS_INLINE inline __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#define YAZ0_ALWAYS_INLINE __forceinline
+#else
+#define YAZ0_ALWAYS_INLINE inline
+#endif
+
+/*
+ * Little-endian detection.
+ */
+#ifdef YAZ0_LITTLE_ENDIAN
+    #if YAZ0_LITTLE_ENDIAN != 0 && YAZ0_LITTLE_ENDIAN != 1
+        #error "FastYZ: YAZ0_LITTLE_ENDIAN must be 0 or 1"
+    #endif
+#else
+    #if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+        #define YAZ0_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+    #elif defined(_WIN32) || defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM) || defined(_M_ARM64)
+        #define YAZ0_LITTLE_ENDIAN 1
+    #elif defined(__i386__) || defined(__x86_64__) || defined(__ARMEL__) || defined(__MIPSEL__)
+        #define YAZ0_LITTLE_ENDIAN 1
+    #elif defined(__BIG_ENDIAN__) || defined(__ARMEB__) || defined(__MIPSEB__) || defined(_M_PPC)
+        #define YAZ0_LITTLE_ENDIAN 0
+    #else
+        #error "FastYZ: cannot determine endianness; define YAZ0_LITTLE_ENDIAN to 0 or 1"
+    #endif
+#endif
+
+/*
+ * Index of the first byte, in memory order, where an XOR is non-zero.
+ * On little-endian that byte is the least significant (ctz); on big-endian
+ * it is the most significant (clz).
+ */
+#if YAZ0_LITTLE_ENDIAN
+    #define YAZ0_FIRST_DIFF32(x) (YAZ0_CTZ32(x) >> 3)
+    #define YAZ0_FIRST_DIFF64(x) (YAZ0_CTZ64(x) >> 3)
+#else
+    #define YAZ0_FIRST_DIFF32(x) (YAZ0_CLZ32(x) >> 3)
+    #define YAZ0_FIRST_DIFF64(x) (YAZ0_CLZ64(x) >> 3)
+#endif
+
+/*
  * Enable 64-bit optimizations on supported architectures.
  * This allows reading/comparing 8 bytes at a time using native instructions.
  */
@@ -65,41 +133,37 @@
 /* Maximum back-reference distance */
 #define MAX_MATCH_DISTANCE YAZ0_MAX_MATCH_DISTANCE
 
-/*
- * Hash table size configuration.
- *
- * HASH_LOG determines the hash table size (2^HASH_LOG entries, 4 bytes each).
- * Larger values improve compression ratio at the cost of memory.
- *
- * Can be overridden at compile time with -DHASH_LOG=XX
- */
-#ifndef HASH_LOG
-#define HASH_LOG 14
+#if FASTYZ_HTAB != FASTYZ_HTAB_SCRATCH
+    #define HASH_SIZE (1 << FASTYZ_HASH_LOG)
 #endif
-
-#define HASH_SIZE (1 << HASH_LOG)
 
 /* ========================================================================
  * Memory Access Utilities
  * ======================================================================== */
 
 /*
- * Read an unaligned 32-bit value from memory.
- * On 64-bit platforms, we can use direct memory access.
- * On 32-bit platforms, we read byte-by-byte for portability.
+ * Read 4 bytes as a native-endian u32.
  */
-#if defined(YAZ0_ARCH64)
-static uint32_t read_u32(const void* ptr)
+static uint64_t read_u32(const void* ptr)
 {
-    return *(const uint32_t*)ptr;
+    uint32_t v;
+    memcpy(&v, ptr, 4);
+    return v;
 }
+
+/*
+ * Read 4 bytes as a little-endian u32, regardless of host endianness.
+ */
+static uint32_t read_u32_le(const void* ptr)
+{
+#if YAZ0_LITTLE_ENDIAN
+    return read_u32(ptr);
 #else
-static uint32_t read_u32(const void* ptr)
-{
     const uint8_t* p = (const uint8_t*)ptr;
-    return (p[3] << 24) | (p[2] << 16) | (p[1] << 8) | p[0];
-}
+    return ((uint32_t)p[3] << 24) | ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[1] <<  8) | ((uint32_t)p[0]);
 #endif
+}
 
 /*
  * Compute a hash value for match finding.
@@ -126,12 +190,12 @@ static uint32_t compare_match(const uint8_t* p, const uint8_t* q, const uint8_t*
 {
     const uint8_t* start = p;
 
-    /* 8 bytes per iteration; ctz locates the first differing byte */
+    /* 8 bytes per iteration; ctz/clz locates the first differing byte */
     while (q + 8 <= limit)
     {
         uint64_t x = read_u64(p) ^ read_u64(q);
         if (x)
-            return (uint32_t)(p - start) + (uint32_t)(__builtin_ctzll(x) >> 3);
+            return (uint32_t)(p - start) + YAZ0_FIRST_DIFF64(x);
         p += 8;
         q += 8;
     }
@@ -149,7 +213,18 @@ static uint32_t compare_match(const uint8_t* p, const uint8_t* q, const uint8_t*
 static uint32_t compare_match(const uint8_t* p, const uint8_t* q, const uint8_t* limit)
 {
     const uint8_t* start = p;
+
+    /* 8 bytes per iteration; ctz/clz locates the first differing byte */
+    while (q + 4 <= limit)
+    {
+        uint32_t x = read_u32(p) ^ read_u32(q);
+        if (x)
+            return (uint32_t)(p - start) + YAZ0_FIRST_DIFF32(x);
+        p += 4;
+        q += 4;
+    }
     
+    /* Byte-by-byte comparison for remaining bytes */
     while (q < limit && *p == *q)
     {
         ++p;
@@ -204,7 +279,7 @@ static inline void writer_emit_literals(yaz0_writer_t* w, uint32_t count, const 
     /* Fill the current flag group if there's remaining space */
     if (w->mask != 0x80)
     {
-        uint32_t room = (uint32_t)__builtin_ctz(w->mask) + 1;
+        uint32_t room = YAZ0_CTZ32(w->mask) + 1;
         const bool fits_in_room = count < room;
         uint32_t n = fits_in_room ? count : room;
 
@@ -320,8 +395,14 @@ static inline void writer_emit_match(yaz0_writer_t* w, uint32_t len, uint32_t di
  * Public API: Compression
  * ======================================================================== */
 
-static inline __attribute__((always_inline))
-int compress_core(const void* input, int length, void* output, const uint32_t hlog)
+static YAZ0_ALWAYS_INLINE
+int compress_core(
+    const void* input, int length, void* output,
+#if FASTYZ_HTAB == FASTYZ_HTAB_SCRATCH
+    void* scratch,
+#endif
+    const uint32_t hlog
+)
 {
     const uint32_t hsize = 1 << hlog;
     const uint32_t hmask = hsize - 1;
@@ -329,7 +410,7 @@ int compress_core(const void* input, int length, void* output, const uint32_t hl
 
     const uint8_t* ip = (const uint8_t*)input;
     const uint8_t* ip_start = ip;
-    const uint8_t* ip_bound = ip + length - 4;  /* Leave room for read_u32 */
+    const uint8_t* ip_bound = ip + length - 4;  /* Leave room for read_u32_le */
     const uint8_t* ip_limit = ip + length - 12 - 1;
     uint8_t* op = (uint8_t*)output;
 
@@ -353,7 +434,11 @@ int compress_core(const void* input, int length, void* output, const uint32_t hl
     writer_new_group(&w);
 
     /* Initialize hash table for match finding */
-    uint32_t htab[HASH_SIZE];
+#if FASTYZ_HTAB == FASTYZ_HTAB_SCRATCH
+    uint32_t* restrict htab = (uint32_t*)scratch;
+#else
+    static uint32_t htab[HASH_SIZE];
+#endif
     memset(htab, 0, hsize * sizeof(uint32_t));
 
     /* Start with literal copy (first 2 bytes can't have back-references) */
@@ -369,7 +454,7 @@ int compress_core(const void* input, int length, void* output, const uint32_t hl
         /* Find a potential match using the hash table */
         do
         {
-            seq = read_u32(ip) & 0xffffff;  /* Use 3 bytes for hashing, the minimum match length */
+            seq = read_u32_le(ip) & 0xffffff;  /* Use 3 bytes for hashing, the minimum match length */
             hash = compute_hash(seq, hshift, hmask);
             ref = ip_start + htab[hash];
             htab[hash] = ip - ip_start;
@@ -377,7 +462,7 @@ int compress_core(const void* input, int length, void* output, const uint32_t hl
             
             /* Check if the match is valid (within distance and matching) */
             cmp = YAZ0_LIKELY(distance <= MAX_MATCH_DISTANCE)
-                  ? read_u32(ref) & 0xffffff 
+                  ? read_u32_le(ref) & 0xffffff
                   : 0x1000000;
             
             if (YAZ0_UNLIKELY(ip >= ip_limit))
@@ -402,7 +487,7 @@ int compress_core(const void* input, int length, void* output, const uint32_t hl
         anchor = ip;
 
         /* Update hash table at the match boundary for future matches */
-        seq = read_u32(ip);
+        seq = read_u32_le(ip);
         hash = compute_hash(seq & 0xFFFFFF, hshift, hmask);
         htab[hash] = ip++ - ip_start;
         seq >>= 8;
@@ -417,13 +502,40 @@ int compress_core(const void* input, int length, void* output, const uint32_t hl
     return (int)(w.op - (uint8_t*)output);
 }
 
+#if FASTYZ_HTAB == FASTYZ_HTAB_SCRATCH
+int yaz0_compress_scratch(const void* input, int length, void* output, void* scratch)
+{
+    if (scratch == 0)
+        return 0;
+#else
 int yaz0_compress(const void* input, int length, void* output)
 {
+#endif
     if (length < 0 || input == 0 || output == 0)
         return 0;
-    if (HASH_LOG > 10 && length < (1 << 12)) return compress_core(input, length, output, 10);
-    if (HASH_LOG > 12 && length < (1 << 15)) return compress_core(input, length, output, 12);
-    return compress_core(input, length, output, HASH_LOG);
+    if (FASTYZ_HASH_LOG > 10 && length < (1 << 12))
+        return compress_core(
+            input, length, output,
+#if FASTYZ_HTAB == FASTYZ_HTAB_SCRATCH
+            scratch,
+#endif
+            10
+        );
+    if (FASTYZ_HASH_LOG > 12 && length < (1 << 15))
+        return compress_core(
+            input, length, output,
+#if FASTYZ_HTAB == FASTYZ_HTAB_SCRATCH
+            scratch,
+#endif
+            12
+        );
+    return compress_core(
+        input, length, output,
+#if FASTYZ_HTAB == FASTYZ_HTAB_SCRATCH
+        scratch,
+#endif
+        FASTYZ_HASH_LOG
+    );
 }
 
 /* ========================================================================

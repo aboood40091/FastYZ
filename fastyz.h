@@ -84,6 +84,56 @@ extern "C" {
 #define FASTYZ_BOUND(length) (YAZ0_HEADER_SIZE + (length) + ((length) / 8) + 1)
 
 /**
+ * Hash table placement policy.
+ * 
+ *   FASTYZ_HTAB_STACK (default)
+ *       Table is a single static array. NOT reentrant: concurrent compressions
+ *       share one table. That race is memory-safe and still produces valid
+ *       output (verified), but it is a data race that sanitizers will report
+ *       and it may slightly worsen the ratio. Single-threaded only.
+ * 
+ *   FASTYZ_HTAB_SCRATCH
+ *       Table lives in caller-supplied scratch memory. Thread-safe.
+ *       Costs ~3-4% throughput vs. otherwise.
+ */
+#define FASTYZ_HTAB_STACK   0
+#define FASTYZ_HTAB_SCRATCH 1
+
+#ifndef FASTYZ_HTAB
+#define FASTYZ_HTAB FASTYZ_HTAB_STACK
+#endif
+
+/*
+ * Hash table size configuration.
+ *
+ * FASTYZ_HASH_LOG determines the hash table size (2^FASTYZ_HASH_LOG entries, 4 bytes each).
+ * Larger values improve compression ratio at the cost of memory.
+ *
+ * Can be overridden at compile time with -DFASTYZ_HASH_LOG=XX
+ */
+#ifndef FASTYZ_HASH_LOG
+    /* Retain compatibility with v1.0.0 */
+    #ifdef HASH_LOG
+        #if defined(__clang__) || defined(__GNUC__)
+            #pragma GCC warning "HASH_LOG is deprecated; use FASTYZ_HASH_LOG instead"
+        #elif defined(_MSC_VER)
+            #pragma message("HASH_LOG is deprecated; use FASTYZ_HASH_LOG instead")
+        #endif
+        #define FASTYZ_HASH_LOG HASH_LOG
+    #else
+        #define FASTYZ_HASH_LOG 14
+    #endif
+#endif
+
+#if FASTYZ_HTAB == FASTYZ_HTAB_SCRATCH
+    /**
+     * Number of bytes of scratch memory yaz0_compress_scratch() requires.
+     */
+    #define FASTYZ_SCRATCH_SIZE ((size_t)(1u << FASTYZ_HASH_LOG) * sizeof(uint32_t))
+#endif
+
+#if FASTYZ_HTAB == FASTYZ_HTAB_SCRATCH
+/**
  * Compress a block of data using Yaz0 compression.
  *
  * This function compresses the input data and produces a valid Yaz0 stream
@@ -93,6 +143,36 @@ extern "C" {
  * The compression uses a fast hash-based LZ77 algorithm adapted from FastLZ,
  * optimized for speed over compression ratio. For typical data, expect
  * compression speeds of 150-200 MB/s on modern hardware.
+ * 
+ * Thread-safe.
+ *
+ * @param input   Pointer to the input data to compress
+ * @param length  Size of the input data in bytes (minimum 16 bytes)
+ * @param output  Pointer to the output buffer for compressed data
+ *                Must be at least FASTYZ_BOUND(length) bytes
+ * @param scratch Scratch buffer, at least FASTYZ_SCRATCH_SIZE bytes,
+ *                aligned to at least alignof(uint32_t).
+ *
+ * @return        Size of the compressed data in bytes,
+ *                or 0 if compression failed
+ *
+ * @note The input and output buffers must not overlap.
+ * @note The output includes the 16-byte Yaz0 header.
+ */
+int yaz0_compress_scratch(const void* input, int length, void* output, void* scratch);
+#else
+/**
+ * Compress a block of data using Yaz0 compression.
+ *
+ * This function compresses the input data and produces a valid Yaz0 stream
+ * complete with the standard 16-byte header. The output is fully compatible
+ * with any standard Yaz0 decompressor.
+ *
+ * The compression uses a fast hash-based LZ77 algorithm adapted from FastLZ,
+ * optimized for speed over compression ratio. For typical data, expect
+ * compression speeds of 150-200 MB/s on modern hardware.
+ * 
+ * NOT thread-safe!
  *
  * @param input   Pointer to the input data to compress
  * @param length  Size of the input data in bytes (minimum 16 bytes)
@@ -106,6 +186,7 @@ extern "C" {
  * @note The output includes the 16-byte Yaz0 header.
  */
 int yaz0_compress(const void* input, int length, void* output);
+#endif
 
 /**
  * Decompress a Yaz0-compressed block of data.
