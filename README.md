@@ -81,14 +81,14 @@ If endianness cannot be detected for your target, the build fails rather than si
 
 The hash table is 64 KiB at the default `FASTYZ_HASH_LOG` (14). Where it lives is a trade-off between speed and reentrancy, so it is your choice:
 
-**`FASTYZ_HTAB_STATIC` (default)** ? the table is a single static array.
+**`FASTYZ_HTAB_STATIC` (default)**: the table is a single static array.
 
 - Exports `yaz0_compress()`
 - Fastest, no allocation, no per-call setup
 - Costs 64 KiB of BSS
 - **Not thread-safe,** concurrent compressions share one table, single-threaded use only
 
-**`FASTYZ_HTAB_SCRATCH`** ? the table lives in caller-supplied scratch memory.
+**`FASTYZ_HTAB_SCRATCH`**: the table lives in caller-supplied scratch memory.
 
 - Exports `yaz0_compress_scratch()` instead
 - Thread-safe, no allocation, no static footprint
