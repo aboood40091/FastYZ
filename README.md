@@ -233,7 +233,7 @@ The CLI tool uses [premake5](https://premake.github.io/):
 
 1. Invoke Premake on your system as:  
     * GCC: `premake5 gmake`
-    * Clang: `premake5 --cc=clang gmake`.
+    * Clang: `premake5 --cc=clang gmake`
     * MSBuild+Clang-cl: `premake5 vs2022`
 2. Compile:
     * GCC and Clang: Using `make` with `-C build config={Config}_{Architecture}` (e.g., `make -C build config=Release_x64`).
