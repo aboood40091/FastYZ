@@ -23,65 +23,65 @@
  * These help optimize the hot paths in compression/decompression loops.
  */
 #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 2))
-#define YAZ0_LIKELY(c)   (__builtin_expect(!!(c), 1))
-#define YAZ0_UNLIKELY(c) (__builtin_expect(!!(c), 0))
+#define FASTYZ_LIKELY(c)   (__builtin_expect(!!(c), 1))
+#define FASTYZ_UNLIKELY(c) (__builtin_expect(!!(c), 0))
 #else
-#define YAZ0_LIKELY(c)   (c)
-#define YAZ0_UNLIKELY(c) (c)
+#define FASTYZ_LIKELY(c)   (c)
+#define FASTYZ_UNLIKELY(c) (c)
 #endif
 
 /*
  * Count-trailing-zeros & count-leading-zeros shims.
  */
 #if defined(__clang__) || defined(__GNUC__)
-#define YAZ0_CTZ32(x) ((uint32_t)__builtin_ctz(x))
-#define YAZ0_CLZ32(x) ((uint32_t)__builtin_clz(x))
-#define YAZ0_CTZ64(x) ((uint32_t)__builtin_ctzll(x))
-#define YAZ0_CLZ64(x) ((uint32_t)__builtin_clzll(x))
+#define FASTYZ_CTZ32(x) ((uint32_t)__builtin_ctz(x))
+#define FASTYZ_CLZ32(x) ((uint32_t)__builtin_clz(x))
+#define FASTYZ_CTZ64(x) ((uint32_t)__builtin_ctzll(x))
+#define FASTYZ_CLZ64(x) ((uint32_t)__builtin_clzll(x))
 #elif defined(_MSC_VER)
 #include <intrin.h>
-static uint32_t YAZ0_CTZ32(uint32_t x) { unsigned long i; _BitScanForward(&i, x); return (uint32_t)i; }
-static uint32_t YAZ0_CLZ32(uint32_t x) { unsigned long i; _BitScanReverse(&i, x); return 31u - (uint32_t)i; }
+static uint32_t FASTYZ_CTZ32(uint32_t x) { unsigned long i; _BitScanForward(&i, x); return (uint32_t)i; }
+static uint32_t FASTYZ_CLZ32(uint32_t x) { unsigned long i; _BitScanReverse(&i, x); return 31u - (uint32_t)i; }
 #if defined(_M_X64) || defined(_M_ARM64)
-static uint32_t YAZ0_CTZ64(uint64_t x) { unsigned long i; _BitScanForward64(&i, x); return (uint32_t)i; }
-static uint32_t YAZ0_CLZ64(uint64_t x) { unsigned long i; _BitScanReverse64(&i, x); return 63u - (uint32_t)i; }
+static uint32_t FASTYZ_CTZ64(uint64_t x) { unsigned long i; _BitScanForward64(&i, x); return (uint32_t)i; }
+static uint32_t FASTYZ_CLZ64(uint64_t x) { unsigned long i; _BitScanReverse64(&i, x); return 63u - (uint32_t)i; }
 #endif
 #else
-static uint32_t YAZ0_CTZ32(uint32_t x) { uint32_t n = 0; while (!(x & 1u)) { x >>= 1; ++n; } return n; }
-static uint32_t YAZ0_CLZ32(uint32_t x) { uint32_t n = 0; while (!(x & 0x80000000u)) { x <<= 1; ++n; } return n; }
-static uint32_t YAZ0_CTZ64(uint64_t x) { uint32_t n = 0; while (!(x & 1u)) { x >>= 1; ++n; } return n; }
-static uint32_t YAZ0_CLZ64(uint64_t x) { uint32_t n = 0; while (!(x & 0x8000000000000000ull)) { x <<= 1; ++n; } return n; }
+static uint32_t FASTYZ_CTZ32(uint32_t x) { uint32_t n = 0; while (!(x & 1u)) { x >>= 1; ++n; } return n; }
+static uint32_t FASTYZ_CLZ32(uint32_t x) { uint32_t n = 0; while (!(x & 0x80000000u)) { x <<= 1; ++n; } return n; }
+static uint32_t FASTYZ_CTZ64(uint64_t x) { uint32_t n = 0; while (!(x & 1u)) { x >>= 1; ++n; } return n; }
+static uint32_t FASTYZ_CLZ64(uint64_t x) { uint32_t n = 0; while (!(x & 0x8000000000000000ull)) { x <<= 1; ++n; } return n; }
 #endif
 
 /*
  * Force-inline attribute, portably.
  */
 #if defined(__clang__) || defined(__GNUC__)
-#define YAZ0_ALWAYS_INLINE inline __attribute__((always_inline))
+#define FASTYZ_ALWAYS_INLINE inline __attribute__((always_inline))
 #elif defined(_MSC_VER)
-#define YAZ0_ALWAYS_INLINE __forceinline
+#define FASTYZ_ALWAYS_INLINE __forceinline
 #else
-#define YAZ0_ALWAYS_INLINE inline
+#define FASTYZ_ALWAYS_INLINE inline
 #endif
 
 /*
  * Little-endian detection.
  */
-#ifdef YAZ0_LITTLE_ENDIAN
-    #if YAZ0_LITTLE_ENDIAN != 0 && YAZ0_LITTLE_ENDIAN != 1
-        #error "FastYZ: YAZ0_LITTLE_ENDIAN must be 0 or 1"
+#ifdef FASTYZ_LITTLE_ENDIAN
+    #if FASTYZ_LITTLE_ENDIAN != 0 && FASTYZ_LITTLE_ENDIAN != 1
+        #error "FastYZ: FASTYZ_LITTLE_ENDIAN must be 0 or 1"
     #endif
 #else
     #if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
-        #define YAZ0_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+        #define FASTYZ_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
     #elif defined(_WIN32) || defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM) || defined(_M_ARM64)
-        #define YAZ0_LITTLE_ENDIAN 1
+        #define FASTYZ_LITTLE_ENDIAN 1
     #elif defined(__i386__) || defined(__x86_64__) || defined(__ARMEL__) || defined(__MIPSEL__)
-        #define YAZ0_LITTLE_ENDIAN 1
+        #define FASTYZ_LITTLE_ENDIAN 1
     #elif defined(__BIG_ENDIAN__) || defined(__ARMEB__) || defined(__MIPSEB__) || defined(_M_PPC)
-        #define YAZ0_LITTLE_ENDIAN 0
+        #define FASTYZ_LITTLE_ENDIAN 0
     #else
-        #error "FastYZ: cannot determine endianness; define YAZ0_LITTLE_ENDIAN to 0 or 1"
+        #error "FastYZ: cannot determine endianness; define FASTYZ_LITTLE_ENDIAN to 0 or 1"
     #endif
 #endif
 
@@ -90,12 +90,12 @@ static uint32_t YAZ0_CLZ64(uint64_t x) { uint32_t n = 0; while (!(x & 0x80000000
  * On little-endian that byte is the least significant (ctz); on big-endian
  * it is the most significant (clz).
  */
-#if YAZ0_LITTLE_ENDIAN
-    #define YAZ0_FIRST_DIFF32(x) (YAZ0_CTZ32(x) >> 3)
-    #define YAZ0_FIRST_DIFF64(x) (YAZ0_CTZ64(x) >> 3)
+#if FASTYZ_LITTLE_ENDIAN
+    #define FASTYZ_FIRST_DIFF32(x) (FASTYZ_CTZ32(x) >> 3)
+    #define FASTYZ_FIRST_DIFF64(x) (FASTYZ_CTZ64(x) >> 3)
 #else
-    #define YAZ0_FIRST_DIFF32(x) (YAZ0_CLZ32(x) >> 3)
-    #define YAZ0_FIRST_DIFF64(x) (YAZ0_CLZ64(x) >> 3)
+    #define FASTYZ_FIRST_DIFF32(x) (FASTYZ_CLZ32(x) >> 3)
+    #define FASTYZ_FIRST_DIFF64(x) (FASTYZ_CLZ64(x) >> 3)
 #endif
 
 /*
@@ -103,7 +103,7 @@ static uint32_t YAZ0_CLZ64(uint64_t x) { uint32_t n = 0; while (!(x & 0x80000000
  * This allows reading/comparing 8 bytes at a time using native instructions.
  */
 #if defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__)
-#define YAZ0_ARCH64
+#define FASTYZ_ARCH64
 #endif
 
 /* ========================================================================
@@ -148,7 +148,7 @@ static uint32_t read_u32(const void* ptr)
  */
 static uint32_t read_u32_le(const void* ptr)
 {
-#if YAZ0_LITTLE_ENDIAN
+#if FASTYZ_LITTLE_ENDIAN
     return read_u32(ptr);
 #else
     const uint8_t* p = (const uint8_t*)ptr;
@@ -170,7 +170,7 @@ static uint32_t compute_hash(uint32_t v, uint32_t shift, uint32_t mask)
  * Compare two memory regions and return the length of the matching prefix.
  * The comparison stops at the boundary 'limit' to prevent buffer overruns.
  */
-#if defined(YAZ0_ARCH64)
+#if defined(FASTYZ_ARCH64)
 static uint64_t read_u64(const void* ptr)
 {
     uint64_t v;
@@ -187,7 +187,7 @@ static uint32_t compare_match(const uint8_t* p, const uint8_t* q, const uint8_t*
     {
         uint64_t x = read_u64(p) ^ read_u64(q);
         if (x)
-            return (uint32_t)(p - start) + YAZ0_FIRST_DIFF64(x);
+            return (uint32_t)(p - start) + FASTYZ_FIRST_DIFF64(x);
         p += 8;
         q += 8;
     }
@@ -211,7 +211,7 @@ static uint32_t compare_match(const uint8_t* p, const uint8_t* q, const uint8_t*
     {
         uint32_t x = read_u32(p) ^ read_u32(q);
         if (x)
-            return (uint32_t)(p - start) + YAZ0_FIRST_DIFF32(x);
+            return (uint32_t)(p - start) + FASTYZ_FIRST_DIFF32(x);
         p += 4;
         q += 4;
     }
@@ -265,13 +265,13 @@ static inline void writer_new_group(yaz0_writer_t* w)
  */
 static inline void writer_emit_literals(yaz0_writer_t* w, uint32_t count, const uint8_t* src)
 {
-    if (YAZ0_UNLIKELY(count == 0))
+    if (FASTYZ_UNLIKELY(count == 0))
         return;
 
     /* Fill the current flag group if there's remaining space */
     if (w->mask != 0x80)
     {
-        uint32_t room = YAZ0_CTZ32(w->mask) + 1;
+        uint32_t room = FASTYZ_CTZ32(w->mask) + 1;
         const bool fits_in_room = count < room;
         uint32_t n = fits_in_room ? count : room;
 
@@ -334,7 +334,7 @@ static inline void writer_emit_match(yaz0_writer_t* w, uint32_t len, uint32_t di
     distance--;
     
     /* Handle matches longer than MAX_LEN by splitting into chunks */
-    if (YAZ0_UNLIKELY(len > MAX_LEN))
+    if (FASTYZ_UNLIKELY(len > MAX_LEN))
     {
         while (len > MAX_LEN)
         {
@@ -343,7 +343,7 @@ static inline void writer_emit_match(yaz0_writer_t* w, uint32_t len, uint32_t di
              * emit 271 bytes instead so the remaining tail will be >= 3 bytes
              * (the minimum match length).
              */
-            uint32_t chunk = YAZ0_UNLIKELY(len - MAX_LEN < SHORT_FORM_MIN) ? (MAX_LEN - (SHORT_FORM_MIN - 1)) : MAX_LEN;
+            uint32_t chunk = FASTYZ_UNLIKELY(len - MAX_LEN < SHORT_FORM_MIN) ? (MAX_LEN - (SHORT_FORM_MIN - 1)) : MAX_LEN;
 
             /* Emit long form (3 bytes) for this chunk */
             uint8_t dist_high = (distance >> 8) & 0x0F;
@@ -353,7 +353,7 @@ static inline void writer_emit_match(yaz0_writer_t* w, uint32_t len, uint32_t di
 
             /* Consume one flag bit (0 = match) */
             w->mask >>= 1;
-            if (YAZ0_UNLIKELY(w->mask == 0))
+            if (FASTYZ_UNLIKELY(w->mask == 0))
                 writer_new_group(w);
 
             len -= chunk;
@@ -379,7 +379,7 @@ static inline void writer_emit_match(yaz0_writer_t* w, uint32_t len, uint32_t di
 
     /* Consume the flag bit for this match (0 = match) */
     w->mask >>= 1;
-    if (YAZ0_UNLIKELY(w->mask == 0))
+    if (FASTYZ_UNLIKELY(w->mask == 0))
         writer_new_group(w);
 }
 
@@ -387,7 +387,7 @@ static inline void writer_emit_match(yaz0_writer_t* w, uint32_t len, uint32_t di
  * Public API: Compression
  * ======================================================================== */
 
-static YAZ0_ALWAYS_INLINE
+static FASTYZ_ALWAYS_INLINE
 int compress_core(
     const void* input, int length, void* output,
 #if FASTYZ_HTAB == FASTYZ_HTAB_SCRATCH
@@ -438,7 +438,7 @@ int compress_core(
     ip += (SHORT_FORM_MIN - 1);
 
     /* Main compression loop */
-    while (YAZ0_LIKELY(ip < ip_limit))
+    while (FASTYZ_LIKELY(ip < ip_limit))
     {
         const uint8_t* ref;
         uint32_t distance, cmp, seq, hash;
@@ -453,21 +453,21 @@ int compress_core(
             distance = ip - ref;
             
             /* Check if the match is valid (within distance and matching) */
-            cmp = YAZ0_LIKELY(distance <= MAX_MATCH_DISTANCE)
+            cmp = FASTYZ_LIKELY(distance <= MAX_MATCH_DISTANCE)
                   ? read_u32_le(ref) & 0xffffff
                   : 0x1000000;
             
-            if (YAZ0_UNLIKELY(ip >= ip_limit))
+            if (FASTYZ_UNLIKELY(ip >= ip_limit))
                 break;
             ++ip;
         } while (seq != cmp);
 
-        if (YAZ0_UNLIKELY(ip >= ip_limit))
+        if (FASTYZ_UNLIKELY(ip >= ip_limit))
             break;
         --ip;
 
         /* Emit any pending literals before this match */
-        if (YAZ0_LIKELY(anchor < ip))
+        if (FASTYZ_LIKELY(anchor < ip))
             writer_emit_literals(&w, (uint32_t)(ip - anchor), anchor);
 
         /* Extend the match as far as possible */
@@ -572,7 +572,7 @@ int yaz0_decompress(const void* input, int length, void* output, int maxout)
             return 0;
         uint32_t flag = *src++;
 
-        if (YAZ0_LIKELY(dst < dst_fast && src < src_fast))
+        if (FASTYZ_LIKELY(dst < dst_fast && src < src_fast))
         {
             /* Hot path: 8 tokens with no per-token bounds tests */
             for (int i = 0; i < YAZ0_FLAG_BYTE_NUM_BITS; ++i)
@@ -607,10 +607,10 @@ int yaz0_decompress(const void* input, int length, void* output, int maxout)
 
                     /* Validate back-reference and copy from it (byte-by-byte for overlapping copies) */
                     const uint8_t* ref = dst - distance;
-                    if (YAZ0_UNLIKELY(ref < (uint8_t*)output))
+                    if (FASTYZ_UNLIKELY(ref < (uint8_t*)output))
                         return 0;
 
-                    if (YAZ0_UNLIKELY(dst + len > dst_fast))
+                    if (FASTYZ_UNLIKELY(dst + len > dst_fast))
                     {
                         if (dst + len > dst_end)
                             return 0;

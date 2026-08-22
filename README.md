@@ -73,9 +73,9 @@ All options are compile-time defines.
 |---|---|---|
 | `FASTYZ_HTAB` | `FASTYZ_HTAB_STATIC` | Hash table placement. See below. |
 | `FASTYZ_HASH_LOG` | `14` | Hash table size, `2^N` entries of 4 bytes. Larger improves ratio, costs memory. |
-| `YAZ0_LITTLE_ENDIAN` | auto-detected | Override endianness detection. Must be `0` or `1`. |
+| `FASTYZ_LITTLE_ENDIAN` | auto-detected | Override endianness detection. Must be `0` or `1`. |
 
-If endianness cannot be detected for your target, the build fails rather than silently guessing. Define `YAZ0_LITTLE_ENDIAN` yourself in that case.
+If endianness cannot be detected for your target, the build fails rather than silently guessing. Define `FASTYZ_LITTLE_ENDIAN` yourself in that case.
 
 ### Hash table placement and thread safety
 
@@ -300,7 +300,7 @@ The tool will not overwrite an existing file unless `-f` is given, and refuses t
 - Big-endian support. Output is byte-identical across endianness.
 - Replaced an unaligned type-punned load (undefined behaviour, and a sanitizer failure on every compression) with a `memcpy` form that compiles to the same single instruction.
 - Added `_BitScan*` and `__forceinline` shims so the code no longer depends on GCC/Clang builtins being present.
-- Endianness that cannot be auto-detected is now a build error, overridable with `-DYAZ0_LITTLE_ENDIAN=0|1`.
+- Endianness that cannot be auto-detected is now a build error, overridable with `-DFASTYZ_LITTLE_ENDIAN=0|1`.
 
 **API**
 
