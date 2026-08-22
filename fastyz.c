@@ -15,7 +15,6 @@
 
 #include "fastyz.h"
 
-#include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -505,13 +504,13 @@ int compress_core(
 #if FASTYZ_HTAB == FASTYZ_HTAB_SCRATCH
 int yaz0_compress_scratch(const void* input, int length, void* output, void* scratch)
 {
-    if (scratch == 0)
+    if (scratch == NULL)
         return 0;
 #else
 int yaz0_compress(const void* input, int length, void* output)
 {
 #endif
-    if (length < 0 || input == 0 || output == 0)
+    if (length < 0 || input == NULL || output == NULL)
         return 0;
     if (FASTYZ_HASH_LOG > 10 && length < (1 << 12))
         return compress_core(
@@ -544,6 +543,9 @@ int yaz0_compress(const void* input, int length, void* output)
 
 int yaz0_decompress(const void* input, int length, void* output, int maxout)
 {
+    if (input == NULL || output == NULL)
+        return 0;
+
     /* Validate header magic */
     if (length < YAZ0_HEADER_SIZE)
         return 0;

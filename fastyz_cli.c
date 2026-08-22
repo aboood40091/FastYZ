@@ -12,13 +12,12 @@
     fastyz -d input.yaz0 -o output.bin   # Decompress to output.bin
 */
 
+#include "fastyz.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 #include <time.h>
-
-#include "fastyz.h"
 
 /* ========================================================================
  * Constants
@@ -276,7 +275,7 @@ static int do_compress(const char* input_file, const char* output_file)
         printf("Compressed: %s -> %s\n", input_file, output_file);
         printf("  Original:   %ld bytes\n", input_size);
         printf("  Compressed: %d bytes (%.1f%%)\n", output_size, ratio);
-        if (elapsed > 0.0f) {
+        if (elapsed > 0.0) {
             double speed = (input_size / (1024.0 * 1024.0)) / elapsed;
             printf("  Time:       %.3f sec (%.1f MB/s)\n", elapsed, speed);
         } else {
@@ -340,7 +339,7 @@ static int do_decompress(const char* input_file, const char* output_file)
         printf("Decompressed: %s -> %s\n", input_file, output_file);
         printf("  Compressed:   %ld bytes\n", input_size);
         printf("  Decompressed: %d bytes\n", decompressed);
-        if (elapsed > 0.0f) {
+        if (elapsed > 0.0) {
             double speed = (decompressed / (1024.0 * 1024.0)) / elapsed;
             printf("  Time:         %.3f sec (%.1f MB/s)\n", elapsed, speed);
         } else {

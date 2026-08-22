@@ -21,6 +21,7 @@
 
 #define FASTYZ_VERSION_STRING "1.1.0"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #if defined(__cplusplus)
