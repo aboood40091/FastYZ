@@ -10,6 +10,8 @@ Yaz0 (also known as SZS) is a compression format commonly used in Nintendo games
 
 The focus of FastYZ is **very fast compression** while maintaining full compatibility with standard Yaz0 decoders. Like FastLZ, this comes at the cost of compression ratio. If you need the smallest possible output, consider using a slower optimal parser like [libyaz0](https://github.com/aboood40091/libyaz0) or similar tools.
 
+**It is now also possible to replicate Nintendo EAD/EPD's exact compressor, byte for byte!** If you are interested, check out [TrueYZ](https://github.com/aboood40091/TrueYZ).
+
 FastYZ is ideal for scenarios where compression speed matters more than achieving the smallest possible file size, such as:
 
 - Build systems that compress many assets
