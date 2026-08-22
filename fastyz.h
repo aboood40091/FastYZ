@@ -24,6 +24,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/*
+ * Workaround for DJGPP (DOS GCC) to find fixed-width integer types.
+ */
+#if defined(__MSDOS__) && defined(__GNUC__)
+#include <stdint-gcc.h>
+#endif
+
 #if defined(__cplusplus)
 extern "C" {
 #endif

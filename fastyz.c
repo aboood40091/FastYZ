@@ -106,13 +106,6 @@ static uint32_t YAZ0_CLZ64(uint64_t x) { uint32_t n = 0; while (!(x & 0x80000000
 #define YAZ0_ARCH64
 #endif
 
-/*
- * Workaround for DJGPP (DOS GCC) to find fixed-width integer types.
- */
-#if defined(__MSDOS__) && defined(__GNUC__)
-#include <stdint-gcc.h>
-#endif
-
 /* ========================================================================
  * Internal Constants
  * ======================================================================== */
