@@ -88,9 +88,7 @@ extern "C" {
  * 
  *   FASTYZ_HTAB_STATIC (default)
  *       Table is a single static array. NOT reentrant: concurrent compressions
- *       share one table. That race is memory-safe and still produces valid
- *       output (verified), but it is a data race that sanitizers will report
- *       and it may slightly worsen the ratio. Single-threaded only.
+ *       share one table. Single-threaded only.
  * 
  *   FASTYZ_HTAB_SCRATCH
  *       Table lives in caller-supplied scratch memory. Thread-safe.

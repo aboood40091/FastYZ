@@ -144,7 +144,7 @@ static uint32_t YAZ0_CLZ64(uint64_t x) { uint32_t n = 0; while (!(x & 0x80000000
 /*
  * Read 4 bytes as a native-endian u32.
  */
-static uint64_t read_u32(const void* ptr)
+static uint32_t read_u32(const void* ptr)
 {
     uint32_t v;
     memcpy(&v, ptr, 4);
@@ -214,7 +214,7 @@ static uint32_t compare_match(const uint8_t* p, const uint8_t* q, const uint8_t*
 {
     const uint8_t* start = p;
 
-    /* 8 bytes per iteration; ctz/clz locates the first differing byte */
+    /* 4 bytes per iteration; ctz/clz locates the first differing byte */
     while (q + 4 <= limit)
     {
         uint32_t x = read_u32(p) ^ read_u32(q);
