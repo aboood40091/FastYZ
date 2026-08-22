@@ -52,7 +52,7 @@ project "fastyz"
         symbols "On"
         optimize "Off"
         omitframepointer "Off"
-        defines { "DEBUG" }
+        defines { "_DEBUG" }
 
     filter "configurations:Release"
         symbols "Off"
