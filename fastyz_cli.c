@@ -93,16 +93,50 @@ static int write_file(const char* filename, const uint8_t* data, size_t size)
     }
 
     size_t written = fwrite(data, 1, size, fp);
-    fclose(fp);
 
-    if (written != size) {
+    int flush_failed = (fflush(fp) != 0);
+    int close_failed = (fclose(fp) != 0);
+
+    if (written != size || flush_failed || close_failed) {
         fprintf(stderr, "Error: Failed to write '%s' (expected %zu, wrote %zu)\n",
                 filename, size, written);
+
+        /* don't leave a truncated file behind */
+        remove(filename);
+
         return -1;
     }
 
     return 0;
 }
+
+static int g_force = 0;
+
+/*
+ * Refuse to destroy an existing file unless -f was given.
+ */
+static int check_output_ok(const char* input, const char* output)
+{
+    FILE* fp;
+
+    if (strcmp(input, output) == 0) {
+        fprintf(stderr, "Error: Output '%s' is the same as the input\n", output);
+        return 0;
+    }
+
+    if (g_force)
+        return 1;
+
+    fp = fopen(output, "rb");
+    if (fp) {
+        fclose(fp);
+        fprintf(stderr, "Error: '%s' already exists (use -f to overwrite)\n", output);
+        return 0;
+    }
+
+    return 1;
+}
+
 
 /* ========================================================================
  * String Utilities
@@ -197,8 +231,14 @@ static int do_compress(const char* input_file, const char* output_file)
     if (!input_data)
         return 1;
 
+    if (input_size > 0x7FFFFFF0L) {
+        fprintf(stderr, "Error: '%s' is too large (max ~2 GiB)\n", input_file);
+        free(input_data);
+        return 1;
+    }
+
     /* Allocate output buffer with worst-case size */
-    size_t max_output = FASTYZ_BOUND(input_size);
+    size_t max_output = FASTYZ_BOUND((size_t)input_size);
     uint8_t* output_data = (uint8_t*)malloc(max_output);
     if (!output_data) {
         fprintf(stderr, "Error: Failed to allocate output buffer\n");
@@ -207,9 +247,17 @@ static int do_compress(const char* input_file, const char* output_file)
     }
 
     /* Compress */
+#if FASTYZ_HTAB == FASTYZ_HTAB_SCRATCH
+    void* scratch = malloc(FASTYZ_SCRATCH_SIZE);
+    clock_t start = clock();
+    int output_size = yaz0_compress_scratch(input_data, (int)input_size, output_data, scratch);
+    clock_t end = clock();
+    free(scratch);
+#else
     clock_t start = clock();
     int output_size = yaz0_compress(input_data, (int)input_size, output_data);
     clock_t end = clock();
+#endif
 
     if (output_size <= 0) {
         fprintf(stderr, "Error: Compression failed\n");
@@ -224,12 +272,16 @@ static int do_compress(const char* input_file, const char* output_file)
     if (result == 0) {
         double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
         double ratio = 100.0 * output_size / input_size;
-        double speed = (input_size / (1024.0 * 1024.0)) / elapsed;
         
         printf("Compressed: %s -> %s\n", input_file, output_file);
         printf("  Original:   %ld bytes\n", input_size);
         printf("  Compressed: %d bytes (%.1f%%)\n", output_size, ratio);
-        printf("  Time:       %.3f sec (%.1f MB/s)\n", elapsed, speed);
+        if (elapsed > 0.0f) {
+            double speed = (input_size / (1024.0 * 1024.0)) / elapsed;
+            printf("  Time:       %.3f sec (%.1f MB/s)\n", elapsed, speed);
+        } else {
+            printf("  Time:       < 1 tick\n");
+        }
     }
 
     free(input_data);
@@ -284,12 +336,16 @@ static int do_decompress(const char* input_file, const char* output_file)
 
     if (result == 0) {
         double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
-        double speed = (decompressed / (1024.0 * 1024.0)) / elapsed;
         
         printf("Decompressed: %s -> %s\n", input_file, output_file);
         printf("  Compressed:   %ld bytes\n", input_size);
         printf("  Decompressed: %d bytes\n", decompressed);
-        printf("  Time:         %.3f sec (%.1f MB/s)\n", elapsed, speed);
+        if (elapsed > 0.0f) {
+            double speed = (decompressed / (1024.0 * 1024.0)) / elapsed;
+            printf("  Time:         %.3f sec (%.1f MB/s)\n", elapsed, speed);
+        } else {
+            printf("  Time:         < 1 tick\n");
+        }
     }
 
     free(input_data);
@@ -308,11 +364,12 @@ static void print_usage(void)
     printf("Usage: %s [options] <input>\n", PROGRAM_NAME);
     printf("\n");
     printf("Options:\n");
-    printf("  -c          Force compression mode\n");
-    printf("  -d          Force decompression mode\n");
-    printf("  -o <file>   Specify output filename\n");
-    printf("  -h, --help  Show this help message\n");
-    printf("  -v          Show version information\n");
+    printf("  -c            Force compression mode\n");
+    printf("  -d            Force decompression mode\n");
+    printf("  -o <file>     Specify output filename\n");
+    printf("  -f, --force   Overwrite the output file if it already exists\n");
+    printf("  -h, --help    Show this help message\n");
+    printf("  -v, --version Show version information\n");
     printf("\n");
     printf("If no mode is specified, the operation is auto-detected:\n");
     printf("  - Files with .yaz0, .szs, or .carc extension are decompressed\n");
@@ -346,6 +403,8 @@ int main(int argc, char* argv[])
             mode = MODE_COMPRESS;
         } else if (strcmp(argv[i], "-d") == 0) {
             mode = MODE_DECOMPRESS;
+        } else if (strcmp(argv[i], "-f") == 0 || strcmp(argv[i], "--force") == 0) {
+            g_force = 1;
         } else if (strcmp(argv[i], "-o") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "Error: -o requires an argument\n");
@@ -410,6 +469,11 @@ int main(int argc, char* argv[])
         output_file = generated_output;
     }
 
+    if (!check_output_ok(input_file, output_file)) {
+        free(generated_output);
+        return 1;
+    }
+
     /* Perform operation */
     int result;
     if (mode == MODE_COMPRESS) {
@@ -419,5 +483,5 @@ int main(int argc, char* argv[])
     }
 
     free(generated_output);
-    return result;
+    return result != 0 ? 1 : 0;
 }
